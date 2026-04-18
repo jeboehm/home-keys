@@ -1,0 +1,7 @@
+services:
+  home-keys:
+    build: .
+    image: ghcr.io/jeboehm/home-keys:main
+    env_file: .env
+    ports:
+      - "127.0.0.1:8080:8080"
