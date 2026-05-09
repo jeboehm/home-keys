@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,11 +20,13 @@ type DoorConfig struct {
 }
 
 type App struct {
-	Config      *Config
-	HAClient    *HAClient
-	RateLimiter *RateLimiter
-	Templates   *template.Template
-	Doors       []DoorConfig
+	Config       *Config
+	HAClient     *HAClient
+	RateLimiter  *RateLimiter
+	Templates    *template.Template
+	Doors        []DoorConfig
+	inProgress   map[string]bool
+	inProgressMu sync.Mutex
 }
 
 func requestCtx(r *http.Request) (context.Context, context.CancelFunc) {
@@ -119,7 +122,6 @@ func (a *App) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type dashboardData struct {
-	Success         string
 	Doors           []DoorConfig
 	HomeKeysEnabled bool
 }
@@ -143,11 +145,6 @@ func (a *App) DashboardHandler(w http.ResponseWriter, r *http.Request) {
 	data := dashboardData{
 		Doors:           a.Doors,
 		HomeKeysEnabled: homeKeysEnabled == "on",
-	}
-	if key := r.URL.Query().Get("success"); key != "" {
-		if d := a.findDoor(key); d != nil {
-			data.Success = d.Name
-		}
 	}
 
 	if err := a.Templates.ExecuteTemplate(w, "dashboard.html", data); err != nil {
@@ -185,6 +182,23 @@ func (a *App) OpenDoorHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.inProgressMu.Lock()
+	if a.inProgress[door.EntityID] {
+		a.inProgressMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unlock already in progress"}) //nolint:errcheck
+		return
+	}
+	a.inProgress[door.EntityID] = true
+	a.inProgressMu.Unlock()
+
+	defer func() {
+		a.inProgressMu.Lock()
+		delete(a.inProgress, door.EntityID)
+		a.inProgressMu.Unlock()
+	}()
+
 	domain, service := DomainService(door.EntityID)
 	if err := a.HAClient.CallService(ctx, domain, service, door.EntityID); err != nil {
 		log.Printf("[DOOR_ERROR] ip=%s action=%s error=%v", ip, door.Name, err)
@@ -193,7 +207,8 @@ func (a *App) OpenDoorHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[DOOR] ip=%s action=%s", ip, door.Name)
-	http.Redirect(w, r, "/?success="+door.Key, http.StatusSeeOther)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "name": door.Name}) //nolint:errcheck
 }
 
 func (a *App) entityIDs() []string {

@@ -7,14 +7,16 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
-// fakeHA builds a test HA server. The handler map is keyed by entity ID path suffix.
-// If a key is missing the server returns 500.
+// Missing entity IDs return 500, matching real HA behaviour for unknown entities.
 type fakeHAConfig struct {
-	states   map[string]string // entity_id → state
-	failOpen bool              // make CallService return 500
+	states    map[string]string // entity_id → state
+	failOpen  bool              // make CallService return 500
+	openDelay time.Duration     // artificial delay for CallService
 }
 
 func newFakeHA(cfg fakeHAConfig) *httptest.Server {
@@ -34,6 +36,9 @@ func newFakeHA(cfg fakeHAConfig) *httptest.Server {
 				http.Error(w, "error", http.StatusInternalServerError)
 				return
 			}
+			if cfg.openDelay > 0 {
+				time.Sleep(cfg.openDelay)
+			}
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -46,14 +51,15 @@ func newTestApp(t *testing.T, ha *httptest.Server, doors []DoorConfig, unlockAll
 	tmpl := template.Must(template.ParseFS(templateFS, "templates/*.html"))
 	return &App{
 		Config: &Config{
-			SessionSecret:        []byte("test-secret-at-least-16-chars!!"),
+			SessionSecret:         []byte("test-secret-at-least-16-chars!!"),
 			EntityUnlockAllowance: unlockAllowance,
-			EntityDoorCode:       doorCode,
+			EntityDoorCode:        doorCode,
 		},
 		HAClient:    NewHAClient(ha.URL, "token"),
 		RateLimiter: newRateLimiter(),
 		Templates:   tmpl,
 		Doors:       doors,
+		inProgress:  make(map[string]bool),
 	}
 }
 
@@ -196,10 +202,88 @@ func TestOpenDoorHandler_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	app.OpenDoorHandler(w, r)
 
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("success should redirect, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("success should return 200, got %d", w.Code)
 	}
-	if loc := w.Header().Get("Location"); !strings.Contains(loc, "success=lock_front") {
-		t.Errorf("redirect location missing success param: %s", loc)
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"ok":true`) {
+		t.Errorf("response body missing ok:true: %s", body)
+	}
+}
+
+func TestOpenDoorHandler_ConcurrentRequestRejected(t *testing.T) {
+	ha := newFakeHA(fakeHAConfig{
+		states: map[string]string{
+			"input_boolean.allowance": "on",
+			"lock.front":              "locked",
+		},
+		openDelay: 100 * time.Millisecond,
+	})
+	defer ha.Close()
+
+	doors := []DoorConfig{{Key: "lock_front", Name: "Front", EntityID: "lock.front"}}
+	app := newTestApp(t, ha, doors, "input_boolean.allowance", "input_text.code")
+
+	type result struct{ code int }
+	results := make(chan result, 2)
+
+	var ready sync.WaitGroup
+	ready.Add(2)
+	var start sync.WaitGroup
+	start.Add(1)
+
+	for range 2 {
+		go func() {
+			form := url.Values{"door": {"lock_front"}}
+			r := httptest.NewRequest(http.MethodPost, "/open", strings.NewReader(form.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r.RemoteAddr = "127.0.0.1:1234"
+			w := httptest.NewRecorder()
+			ready.Done()
+			start.Wait()
+			app.OpenDoorHandler(w, r)
+			results <- result{w.Code}
+		}()
+	}
+	ready.Wait()
+	start.Done()
+
+	codes := []int{(<-results).code, (<-results).code}
+	okCount, conflictCount := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusOK:
+			okCount++
+		case http.StatusConflict:
+			conflictCount++
+		}
+	}
+	if okCount != 1 || conflictCount != 1 {
+		t.Errorf("expected 1×200 and 1×409, got codes %v", codes)
+	}
+}
+
+func TestOpenDoorHandler_LockReleasedAfterCompletion(t *testing.T) {
+	ha := newFakeHA(fakeHAConfig{states: map[string]string{
+		"input_boolean.allowance": "on",
+		"lock.front":              "locked",
+	}})
+	defer ha.Close()
+
+	doors := []DoorConfig{{Key: "lock_front", Name: "Front", EntityID: "lock.front"}}
+	app := newTestApp(t, ha, doors, "input_boolean.allowance", "input_text.code")
+
+	for i := range 2 {
+		form := url.Values{"door": {"lock_front"}}
+		r := httptest.NewRequest(http.MethodPost, "/open", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.RemoteAddr = "127.0.0.1:1234"
+		w := httptest.NewRecorder()
+		app.OpenDoorHandler(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("request %d: expected 200, got %d", i+1, w.Code)
+		}
 	}
 }
