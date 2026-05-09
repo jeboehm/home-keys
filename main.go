@@ -124,6 +124,7 @@ func main() {
 		RateLimiter: rl,
 		Templates:   tmpl,
 		Doors:       doors,
+		inProgress:  make(map[string]bool),
 	}
 
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), 10*time.Second)

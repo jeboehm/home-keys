@@ -149,7 +149,7 @@ func DomainService(entityID string) (domain, service string) {
 	prefix, _, _ := strings.Cut(entityID, ".")
 	switch prefix {
 	case "lock":
-		return "lock", "unlock"
+		return "lock", "open"
 	case "cover":
 		return "cover", "open_cover"
 	case "button":

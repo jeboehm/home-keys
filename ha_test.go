@@ -14,7 +14,7 @@ func TestDomainService(t *testing.T) {
 		wantDomain      string
 		wantService     string
 	}{
-		{"lock.front_door", "lock", "unlock"},
+		{"lock.front_door", "lock", "open"},
 		{"cover.garage", "cover", "open_cover"},
 		{"button.doorbell", "button", "press"},
 		{"script.open_gate", "script", "turn_on"},
