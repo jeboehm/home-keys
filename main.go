@@ -5,6 +5,7 @@ import (
 	"embed"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -22,6 +23,7 @@ type Config struct {
 	EntityUnlockAllowance string
 	EntityDoorCode        string
 	IgnoredEntities       []string
+	AllowedNetworks       []*net.IPNet
 	ListenAddr            string
 }
 
@@ -35,6 +37,18 @@ func loadConfig() *Config {
 		}
 	}
 
+	var allowedNetworks []*net.IPNet
+	if raw := os.Getenv("ALLOWED_NETWORKS"); raw != "" {
+		for _, cidr := range strings.Split(raw, ",") {
+			cidr = strings.TrimSpace(cidr)
+			_, network, err := net.ParseCIDR(cidr)
+			if err != nil {
+				log.Fatalf("invalid CIDR in ALLOWED_NETWORKS %q: %v", cidr, err)
+			}
+			allowedNetworks = append(allowedNetworks, network)
+		}
+	}
+
 	cfg := &Config{
 		SessionSecret:         []byte(mustEnv("SESSION_SECRET")),
 		HAUrl:                 mustEnv("HA_URL"),
@@ -42,6 +56,7 @@ func loadConfig() *Config {
 		EntityUnlockAllowance: envOr("ENTITY_UNLOCK_ALLOWANCE", "input_boolean.home_keys_enabled"),
 		EntityDoorCode:        envOr("ENTITY_DOOR_CODE", "input_text.home_keys_code"),
 		IgnoredEntities:       ignored,
+		AllowedNetworks:       allowedNetworks,
 		ListenAddr:            envOr("LISTEN_ADDR", ":8080"),
 	}
 	if len(cfg.SessionSecret) < 16 {
