@@ -10,6 +10,7 @@
 | `ENTITY_UNLOCK_ALLOWANCE` | Yes      | `input_boolean.home_keys_enabled` | Entity ID of the `input_boolean` that gates door unlocking.                       |
 | `ENTITY_DOOR_CODE`        | Yes      | `input_text.home_keys_code`       | Entity ID of the `input_text` holding the login PIN. Empty state = no PIN.        |
 | `IGNORED_ENTITIES`        | No       | —                                 | Comma-separated list of `lock` entity IDs to exclude from the dashboard.          |
+| `ALLOWED_NETWORKS`        | No       | —                                 | Comma-separated list of IPv4/IPv6 CIDRs allowed to operate door controls. Authenticated visitors outside these ranges see a "Please join the WiFi" message and cannot open doors. Unset means all IPs are permitted. |
 | `LISTEN_ADDR`             | No       | `:8080`                           | TCP address the HTTP server binds to.                                             |
 
 ---
@@ -40,7 +41,7 @@ Only `lock` entities are auto-discovered and displayed on the dashboard. The HA 
 | `[LOGIN_OK]`     | Successful login                                               |
 | `[LOGIN_FAIL]`   | Failed login attempt (wrong code or rate-limited)              |
 | `[DOOR]`         | Door successfully opened                                       |
-| `[DOOR_BLOCKED]` | Open attempt rejected because `ENTITY_UNLOCK_ALLOWANCE` is off |
+| `[DOOR_BLOCKED]` | Open attempt rejected — either `ENTITY_UNLOCK_ALLOWANCE` is off or the visitor's IP is not in `ALLOWED_NETWORKS` |
 | `[DOOR_ERROR]`   | HA service call failed                                         |
 | `[ERROR]`        | Internal error (HA unreachable, template error, etc.)          |
 | `[HA]`           | Raw HA service call response body                              |

@@ -30,6 +30,25 @@ Any direct `POST /open` request is rejected with `403 Forbidden` regardless of h
 
 ---
 
+## The network allowlist
+
+`ALLOWED_NETWORKS` adds a second layer of protection on top of PIN authentication. When configured, the dashboard and `POST /open` check whether the visitor's IP belongs to any of the listed CIDRs **after** validating the session but **before** consulting the unlock allowance `input_boolean`.
+
+This ordering means:
+
+1. Unauthenticated visitors → redirected to login (unchanged)
+2. Authenticated visitor, IP not in allowlist → "Please join the WiFi" message; `POST /open` returns 403
+3. Authenticated visitor, IP in allowlist, allowance off → "Not activated" message; `POST /open` returns 403
+4. Authenticated visitor, IP in allowlist, allowance on → door buttons active
+
+Because the check happens per-request, moving a device off the trusted network takes effect immediately with no session invalidation needed.
+
+Both IPv4 (`192.168.1.0/24`) and IPv6 (`fd00::/8`) CIDRs are supported and can be mixed in a single `ALLOWED_NETWORKS` value. When `ALLOWED_NETWORKS` is unset, the feature is disabled and all authenticated visitors can operate doors (the pre-existing behaviour).
+
+The client IP is resolved from `X-Forwarded-For` (first entry) when present, falling back to the TCP remote address — the same logic used by the login rate limiter.
+
+---
+
 ## Rate limiting design
 
 The in-memory rate limiter uses a per-IP sliding window (5 attempts / 15 minutes). It is intentionally simple:

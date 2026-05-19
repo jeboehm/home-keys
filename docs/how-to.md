@@ -47,6 +47,22 @@ No restart is required — the state is read on every request.
 
 ---
 
+## Restrict door controls to a specific network
+
+Set `ALLOWED_NETWORKS` in `.env` to a comma-separated list of IPv4 or IPv6 CIDR ranges:
+
+```dotenv
+ALLOWED_NETWORKS=192.168.1.0/24,fd00::/8
+```
+
+Restart the service. Authenticated visitors whose IP falls outside these ranges will see a "Please join the WiFi" message on the dashboard and cannot open doors. Visitors inside the ranges are unaffected.
+
+Leave `ALLOWED_NETWORKS` unset (the default) to allow all authenticated visitors regardless of network.
+
+> **Tip:** If home-keys runs behind a reverse proxy, make sure the proxy forwards the real client IP via `X-Forwarded-For` — the allowlist check reads that header first.
+
+---
+
 ## Deploy an update
 
 ```bash

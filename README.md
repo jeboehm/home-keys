@@ -7,7 +7,7 @@ A minimal web app that lets guests open doors via Home Assistant — protected b
 ## How it works
 
 - Guests visit the URL and enter the current PIN (stored in an `input_text` helper in Home Assistant)
-- After login, they see a button for every discovered lock entity — but only if the `input_boolean` unlock allowance is switched on in HA
+- After login, they see a button for every discovered lock entity — but only if the `input_boolean` unlock allowance is switched on in HA and the visitor is on an allowed network
 - Pressing a button calls the appropriate HA service (`lock.unlock`) for that entity
 - All `lock` entities and their display names are **auto-discovered** at startup from Home Assistant — no hardcoded entity IDs required
 
@@ -43,6 +43,7 @@ Copy `.env.example` to `.env` and fill in the values:
 | `ENTITY_UNLOCK_ALLOWANCE` | Yes      | `input_boolean` entity ID that enables door unlocking     |
 | `ENTITY_DOOR_CODE`        | Yes      | `input_text` entity ID holding the login PIN              |
 | `IGNORED_ENTITIES`        | No       | Comma-separated entity IDs to hide from the dashboard     |
+| `ALLOWED_NETWORKS`        | No       | Comma-separated IPv4/IPv6 CIDRs allowed to operate locks  |
 | `LISTEN_ADDR`             | No       | Listen address (default: `:8080`)                         |
 
 ## Running
@@ -68,7 +69,7 @@ On startup the app discovers all door entities from HA, then verifies it can rea
 | Document                           | Type        | Contents                                             |
 | ---------------------------------- | ----------- | ---------------------------------------------------- |
 | [Tutorial](docs/tutorial.md)       | Tutorial    | Step-by-step setup from clone to first door open     |
-| [How-to guides](docs/how-to.md)    | How-to      | Rotate PIN, add/ignore doors, deploy updates         |
+| [How-to guides](docs/how-to.md)    | How-to      | Rotate PIN, add/ignore doors, restrict by network, deploy updates |
 | [Reference](docs/reference.md)     | Reference   | All env vars, HTTP routes, log prefixes, rate limits |
 | [Explanation](docs/explanation.md) | Explanation | Auth model, entity discovery, unlock allowance gate  |
 
@@ -78,6 +79,7 @@ On startup the app discovers all door entities from HA, then verifies it can rea
 - Login is rate-limited to 5 attempts per IP per 15 minutes
 - Cookies are `HttpOnly`, `Secure`, `SameSite=Strict`
 - The session signing key is derived from `SESSION_SECRET + current PIN`, so rotating the PIN invalidates all sessions
+- `ALLOWED_NETWORKS` restricts door controls to trusted networks (e.g. home WiFi); visitors from other networks see a "Please join the WiFi" message after login
 
 ## Architecture
 
