@@ -42,6 +42,22 @@ func (a *App) findDoor(key string) *DoorConfig {
 	return nil
 }
 
+func (a *App) ipAllowed(ipStr string) bool {
+	if len(a.Config.AllowedNetworks) == 0 {
+		return true
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	for _, network := range a.Config.AllowedNetworks {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -122,13 +138,22 @@ func (a *App) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type dashboardData struct {
-	Doors           []DoorConfig
-	HomeKeysEnabled bool
+	Doors             []DoorConfig
+	HomeKeysEnabled   bool
+	NetworkNotAllowed bool
 }
 
 func (a *App) DashboardHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
+		return
+	}
+
+	if !a.ipAllowed(clientIP(r)) {
+		data := dashboardData{Doors: a.Doors, NetworkNotAllowed: true}
+		if err := a.Templates.ExecuteTemplate(w, "dashboard.html", data); err != nil {
+			log.Printf("[ERROR] render dashboard: %v", err)
+		}
 		return
 	}
 
@@ -165,6 +190,12 @@ func (a *App) OpenDoorHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
+
+	if !a.ipAllowed(ip) {
+		log.Printf("[DOOR_BLOCKED] ip=%s reason=network_not_allowed", ip)
+		http.Error(w, "Forbidden.", http.StatusForbidden)
+		return
+	}
 
 	ctx, cancel := requestCtx(r)
 	defer cancel()
